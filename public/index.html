@@ -1,0 +1,360 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Pose Detection</title>
+    <link rel="stylesheet" href="styles.css"> 
+</head>
+
+
+
+
+<style>
+    
+
+body {
+    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+    background-color: #121212; 
+    color: #e0e0e0; 
+    margin: 0;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    height: 100vh;
+}
+
+
+.feedback-container {
+    max-width: 600px; /* Limit the width of feedback text */
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+}
+
+/* Feedback text styling */
+#feedback {
+    font-size: 1.2rem;
+    font-weight: bold;
+    background-color: rgba(0, 0, 0, 0.8); /* Slightly darker semi-transparent background */
+    color: #ffffff; /* White text color */
+    padding: 15px;
+    border-radius: 8px;
+    box-shadow: 0 0 10px rgba(0, 0, 0, 0.5); /* Slight shadow for better readability */
+    text-align: center;
+}
+
+
+h1 {
+    color: #ffffff; 
+    margin-bottom: 20px;
+    font-size: 2rem;
+    text-align: center;
+}
+
+
+.main-container {
+    display: flex;
+    justify-content: center;
+    align-items: flex-start;
+    gap: 20px; 
+}
+
+
+.canvas-container {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+}
+
+
+#output {
+    border: 3px solid #ffffff; 
+    border-radius: 12px;
+    box-shadow: 0 0 15px rgba(255, 255, 255, 0.5);
+    background-color: #000000; 
+    margin-bottom: 20px; 
+}
+
+.feedback-container {
+    max-width: 400px; 
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+}
+
+
+#feedback {
+    font-size: 1.2rem;
+    font-weight: bold;
+    background-color: rgba(0, 0, 0, 0.8); 
+    color: #ffffff; 
+    padding: 15px;
+    border-radius: 8px;
+    box-shadow: 0 0 10px rgba(0, 0, 0, 0.5); 
+    text-align: center;
+}
+
+
+@media (max-width: 768px) {
+    h1 {
+        font-size: 1.5rem;
+    }
+
+    #feedback {
+        font-size: 1rem;
+        padding: 10px;
+    }
+}
+
+@media (max-width: 480px) {
+    h1 {
+        font-size: 1.2rem;
+    }
+
+    #feedback {
+        font-size: 0.9rem;
+        padding: 8px;
+    }
+}
+
+</style>
+
+
+
+
+
+
+
+
+
+<body>
+
+
+
+
+    <h1>Pose Landmarker Detection</h1>
+    <div class="main-container">
+        <div class="canvas-container">
+            <video id="video" autoplay playsinline style="display: none;"></video>
+            <canvas id="output" width="640" height="480"></canvas>
+        </div>
+        <div class="feedback-container">
+            <div id="feedback">Loading feedback...</div> 
+        </div>
+    </div>
+
+
+
+
+    
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/pose"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/drawing_utils"></script>
+    <script>
+
+
+        const video = document.getElementById('video');
+        const canvas = document.getElementById('output');
+        const ctx = canvas.getContext('2d');
+        const feedbackElement = document.getElementById('feedback');
+
+
+
+        // Request access to the camera
+        navigator.mediaDevices.getUserMedia({ video: true })
+            .then(stream => {
+                video.srcObject = stream;
+                video.play();
+            })
+            .catch(error => {
+                console.error('Error accessing camera: ', error);
+            });
+
+
+
+        // Initialize MediaPipe Pose
+        const pose = new Pose({
+            locateFile: (file) => {
+                return `https://cdn.jsdelivr.net/npm/@mediapipe/pose/${file}`;
+            }
+        });
+
+
+
+        pose.setOptions({
+            modelComplexity: 1,
+            smoothLandmarks: true,
+            minDetectionConfidence: 0.5,
+            minTrackingConfidence: 0.5
+        });
+
+
+
+
+        pose.onResults(onResults);
+
+        function onResults(results) {
+            ctx.save();
+
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+            ctx.drawImage(results.image, 0, 0, canvas.width, canvas.height);
+
+
+
+            if (results.poseLandmarks) {
+                drawConnectors(ctx, results.poseLandmarks, POSE_CONNECTIONS, { color: '#00FF00', lineWidth: 4 });
+                drawLandmarks(ctx, results.poseLandmarks, { color: '#FF0000', lineWidth: 2 });
+
+
+
+                // Elbow Angle Check
+                const leftElbowAngle = calculateAngle(
+                    results.poseLandmarks[11],  // Left shoulder
+                    results.poseLandmarks[13],  // L elbow
+                    results.poseLandmarks[15]   // L wrist
+                );
+
+
+
+
+                const rightElbowAngle = calculateAngle(
+                    results.poseLandmarks[12],  // rs
+                    results.poseLandmarks[14],  // re
+                    results.poseLandmarks[16]   // rw
+                );
+
+
+
+
+                // Squat Detection (according to problem statement)
+                const hipToKneeDistance = calculateDistance(
+                    results.poseLandmarks[23],  // L hip
+                    results.poseLandmarks[25]   // L knee
+                );
+
+
+
+                const kneeToAnkleDistance = calculateDistance(
+                    results.poseLandmarks[25],  // L knee
+                    results.poseLandmarks[27]   // L ankle
+                );
+
+
+
+
+                const squatThreshold = 0.5; // seen by healthcare website
+                const isSquatting = hipToKneeDistance / kneeToAnkleDistance < squatThreshold;
+
+
+
+
+
+                // Shoulder 
+                const leftShoulder = results.poseLandmarks[11];
+                const rightShoulder = results.poseLandmarks[12];
+                const shoulderAlignmentThreshold = 0.1; // seen from hc website
+                const shouldersAligned = Math.abs(leftShoulder.y - rightShoulder.y) < shoulderAlignmentThreshold;
+
+
+
+
+
+                // Head Position Check
+                const nose = results.poseLandmarks[0];
+                const shouldersY = (leftShoulder.y + rightShoulder.y) / 2;
+                const headUprightThreshold = 0.1; // seen from hc website
+                const headUpright = Math.abs(nose.y - shouldersY) < headUprightThreshold;
+
+
+
+
+
+                // Display Results
+                let feedbackText = '';
+                if (leftElbowAngle < 70 || leftElbowAngle > 160) {
+                    feedbackText +=`<span style="color: red;">incorrect left elbow</span></br>`;
+                }
+                 else {
+                    feedbackText += `<span style="color: green;">correct left elbow</span></br>`;
+                }
+
+
+
+
+                if (rightElbowAngle < 70 || rightElbowAngle > 160) {
+                    feedbackText +=`<span style="color: red;">incorrect right elbow</span></br>`;
+                } else {
+                    feedbackText += `<span style="color: green;">correct right elbow</span></br>`;
+                }
+
+
+
+
+                if (isSquatting) {
+                    feedbackText +=`<span style="color: green;">Good Squat Position</span></br>` ;
+                } else {
+                    feedbackText += `<span style="color: red;">incorrect squat position</span></br>`;
+                }
+
+
+
+
+                if (shouldersAligned) {
+                    feedbackText += `<span style="color: green;">shoulders are aligned</span></br>`;
+                } else {
+                    feedbackText += `<span style="color: red;">align your shoulders</span></br>` ;
+                }
+
+
+
+                if (headUpright) {
+                    feedbackText += `<span style="color: green;">head is right</span></br>`;
+                } else {
+                    feedbackText += `<span style="color: red;">head is tilted</span></br>`;
+                }
+
+
+                feedbackElement.innerHTML = feedbackText;
+            }
+            ctx.restore();
+        }
+
+        function calculateAngle(A, B, C) {
+            const AB = Math.sqrt(Math.pow(B.x - A.x, 2) + Math.pow(B.y - A.y, 2));
+            const BC = Math.sqrt(Math.pow(B.x - C.x, 2) + Math.pow(B.y - C.y, 2));
+            const AC = Math.sqrt(Math.pow(C.x - A.x, 2) + Math.pow(C.y - A.y, 2));
+            return Math.acos((AB*AB + BC*BC - AC*AC) / (2 * AB * BC)) * (180 / Math.PI);
+        }
+
+
+
+        function calculateDistance(A, B) {
+            return Math.sqrt(Math.pow(B.x - A.x, 2) + Math.pow(B.y - A.y, 2));
+        }
+
+
+
+        async function detectPose() {
+            await pose.send({ image: video });
+            requestAnimationFrame(detectPose);
+        }
+
+
+
+        video.addEventListener('loadeddata', () => {
+            detectPose();
+        });
+
+
+
+
+    </script>
+
+
+
+
+</body>
+</html>
